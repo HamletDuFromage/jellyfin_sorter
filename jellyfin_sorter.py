@@ -36,7 +36,7 @@ class FileInfo:
         if title_search_result:
             title = title_search_result.groupdict().get("title")
         else:
-            title = re.sub(self.tags.get("extension", ""), "", self.path.name, flags=re.IGNORECASE)
+            title = self.path.name
         title = title.replace(" ", ".").rstrip(".")
         return ".".join([w.capitalize() for w in title.split(".")])
 
