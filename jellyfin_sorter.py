@@ -37,7 +37,7 @@ class FileInfo:
             title = title_search_result.groupdict().get("title")
         else:
             title = self.path.name
-        title = title.replace(" ", ".").rstrip(".")
+        title = title.replace(" ", ".").rstrip(".-_")
         return ".".join([w.capitalize() for w in title.split(".")])
 
     def get_tags(self, path):
