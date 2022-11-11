@@ -11,6 +11,7 @@ class Type:
     SHOW_SEASON = 4
     SHOW_EPISODE = 5
     SUBTITLE = 6
+    MINI_SERIES = 7
 
 
 class FileInfo:
@@ -21,6 +22,7 @@ class FileInfo:
         self.regex_searches = set()
         self.regex_searches.add(r"(?i:s)(?i:eason.?)?(?P<season>\d{1,})")
         self.regex_searches.add(r"(?i:e)(?i:pisode.?)?(?P<episode>\d{2,})")
+        self.regex_searches.add(r"(?i:part.?)(?P<part>\d{1,})")
         self.regex_searches.add(r"(?P<resolution>\d{3,4})p")
         self.regex_searches.add(r"(?:\.|\()(?P<year>\d{4})(?:\.|\))")
         self.regex_searches.add(r"\[(?P<tracker>\D+)\](\.\w+)?$")
@@ -85,6 +87,16 @@ class FileInfo:
         else:
             return bool(self.tags.get("episode"))
 
+    def is_mini_series(self) -> bool:
+        parts = set()
+        for p in self.path.glob("*"):
+            if p.is_dir() and re.search(r"episodes", p.name, re.IGNORECASE):
+                return True
+            part = self.get_tags(p).get("part")
+            if part:
+                parts.add(int(part))
+        return len(parts) > 1
+
     def is_video(self) -> bool:
         for p in self.path.rglob("*"):
             if self.get_tags(p).get("extension"):
@@ -101,6 +113,8 @@ class FileInfo:
             return Type.SHOW_SEASON
         if self.is_tv_show():
             return Type.SHOW
+        if self.is_mini_series():
+            return Type.MINI_SERIES
         if self.is_movie():
             return Type.MOVIE
         if self.path.suffix == ".srt":
@@ -197,6 +211,9 @@ class FileSorter:
                 self.global_tags.get("title"),
                 f"season-{self.global_tags.get('season'):02}")
             self.move_to_folder(file_info.path, folder_path)
+
+        elif file_info.type == Type.MINI_SERIES:
+            self.merge_folders(file_info.path, self.shows_path.joinpath(file_info.tags.get("title")))
 
         elif file_info.type == Type.MOVIE:
             self.merge_folders(file_info.path, self.movies_path.joinpath(file_info.path.name))
