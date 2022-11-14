@@ -12,6 +12,7 @@ class Type:
     SHOW_EPISODE = 5
     SUBTITLE = 6
     MINI_SERIES = 7
+    FEATURETTE = 8
 
 
 class FileInfo:
@@ -53,25 +54,6 @@ class FileInfo:
                 tags[int_tag] = int(tags.get(int_tag))
         return tags
 
-    def is_tv_show(self) -> bool:
-        seasons = set()
-        for p in self.path.rglob("*"):
-            season = self.get_tags(p).get("season")
-            if season:
-                seasons.add(int(season))
-        return len(seasons) > 1
-
-    def is_tv_season(self) -> bool:
-        seasons = set()
-        for p in self.path.rglob("*"):
-            season = self.get_tags(p).get("season")
-            if season:
-                seasons.add(int(season))
-        if len(seasons) == 1:
-            self.tags["season"] = seasons.pop()
-            return True
-        return False
-
     def is_tv_episode(self) -> bool:
         if self.folder:
             episodes = set()
@@ -87,6 +69,32 @@ class FileInfo:
         else:
             return bool(self.tags.get("episode"))
 
+    def is_tv_season(self) -> bool:
+        seasons = set()
+        for p in self.path.rglob("*"):
+            season = self.get_tags(p).get("season")
+            if season:
+                seasons.add(int(season))
+        if len(seasons) == 1:
+            self.tags["season"] = seasons.pop()
+            return True
+        return False
+
+    def is_tv_show(self) -> bool:
+        seasons = set()
+        for p in self.path.rglob("*"):
+            season = self.get_tags(p).get("season")
+            if season:
+                seasons.add(int(season))
+        return len(seasons) > 1
+
+    def is_featurette(self) -> bool:
+        featurette_dirnames = {
+            r"Behind The Scenes", r"Deleted Scenes", r"Featurettes", r"Interviews", r"Scenes", r"Shorts", r"Trailers", r"Other"
+        }
+        featurette_pattern = "|".join(featurette_dirnames)
+        return self.path.is_dir() and re.search(featurette_pattern, self.path.name, re.IGNORECASE)
+
     def is_mini_series(self) -> bool:
         parts = set()
         for p in self.path.glob("*"):
@@ -97,14 +105,14 @@ class FileInfo:
                 parts.add(int(part))
         return len(parts) > 1
 
+    def is_movie(self) -> bool:
+        return self.is_video()
+
     def is_video(self) -> bool:
         for p in self.path.rglob("*"):
             if self.get_tags(p).get("extension"):
                 return True
         return bool(self.get_tags(self.path).get("extension"))
-
-    def is_movie(self) -> bool:
-        return self.is_video()
 
     def get_type(self):
         if self.is_tv_episode():
@@ -115,6 +123,8 @@ class FileInfo:
             return Type.SHOW
         if self.is_mini_series():
             return Type.MINI_SERIES
+        if self.is_featurette():
+            return Type.FEATURETTE
         if self.is_movie():
             return Type.MOVIE
         if self.path.suffix == ".srt":
@@ -217,6 +227,13 @@ class FileSorter:
 
         elif file_info.type == Type.MOVIE:
             self.merge_folders(file_info.path, self.movies_path.joinpath(file_info.path.name))
+
+        elif file_info.type == Type.FEATURETTE:
+            if self.global_tags.get("season"): #Featurette from show
+                featurette_path = self.shows_path.joinpath(file_info.tags.get("title"))
+            else: # Should never be reached
+                featurette_path = self.movies_path.joinpath(file_info.path.name)
+            self.move_to_folder(file_info.path, featurette_path)
 
         if not self.dry_run:
             if file_info.path.suffix == ".txt":
