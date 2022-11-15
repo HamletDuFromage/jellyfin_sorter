@@ -115,6 +115,8 @@ class FileInfo:
         return bool(self.get_tags(self.path).get("extension"))
 
     def get_type(self):
+        if self.is_featurette():
+            return Type.FEATURETTE
         if self.is_tv_episode():
             return Type.SHOW_EPISODE
         if self.is_tv_season():
@@ -123,8 +125,6 @@ class FileInfo:
             return Type.SHOW
         if self.is_mini_series():
             return Type.MINI_SERIES
-        if self.is_featurette():
-            return Type.FEATURETTE
         if self.is_movie():
             return Type.MOVIE
         if self.path.suffix == ".srt":
@@ -212,7 +212,14 @@ class FileSorter:
             file_info.path = folder_path
             file_info.folder = True
 
-        if file_info.type == Type.SHOW or file_info.type == Type.SHOW_SEASON:
+        if file_info.type == Type.FEATURETTE:
+            if self.global_tags.get("season"): #Featurette from show
+                featurette_path = self.shows_path.joinpath(file_info.tags.get("title"))
+            else: # Should never be reached
+                featurette_path = self.movies_path.joinpath(file_info.path.name)
+            self.move_to_folder(file_info.path, featurette_path)
+
+        elif file_info.type == Type.SHOW or file_info.type == Type.SHOW_SEASON:
             for subfolder in file_info.path.glob("*"):
                 self.build_tree(subfolder)
 
@@ -227,13 +234,6 @@ class FileSorter:
 
         elif file_info.type == Type.MOVIE:
             self.merge_folders(file_info.path, self.movies_path.joinpath(file_info.path.name))
-
-        elif file_info.type == Type.FEATURETTE:
-            if self.global_tags.get("season"): #Featurette from show
-                featurette_path = self.shows_path.joinpath(file_info.tags.get("title"))
-            else: # Should never be reached
-                featurette_path = self.movies_path.joinpath(file_info.path.name)
-            self.move_to_folder(file_info.path, featurette_path)
 
         if not self.dry_run:
             if file_info.path.suffix == ".txt":
