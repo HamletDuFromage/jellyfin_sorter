@@ -229,14 +229,6 @@ class FileSorter:
         elif file_info.type == Type.MOVIE:
             self.hardlink_to_folder(file_info.path, self.movies_path, file_info.needs_subfolder)
 
-        if not self.dry_run:
-            if file_info.path.suffix == ".txt":
-                file_info.path.unlink()
-            try:
-                file_info.path.rmdir()
-            except OSError:
-                pass
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Organize TV series")
