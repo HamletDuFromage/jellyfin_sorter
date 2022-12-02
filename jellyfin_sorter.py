@@ -23,13 +23,14 @@ class FileInfo:
         self.regex_searches = set()
         self.regex_searches.add(r"(?i:s)(?i:eason.?)?(?P<season>\d{1,})")
         self.regex_searches.add(r"(?i:e)(?i:pisode.?)?(?P<episode>\d{2,})")
-        self.regex_searches.add(r"(?i:part.?)(?P<part>\d{1,})")
+        self.regex_searches.add(r"(?:(?i:part.?)|((?i:e)(?i:pisode.?)?))(?P<part>\d{1,})")
         self.regex_searches.add(r"(?P<resolution>\d{3,4})p")
         self.regex_searches.add(r"(?:\.|\()(?P<year>\d{4})(?:\.|\))")
         self.regex_searches.add(r"\[(?P<tracker>\D+)\](\.\w+)?$")
         self.regex_searches.add(fr"\.(?P<extension>(?i:{'|'.join(VIDEO_EXTENSIONS)})$)")
         self.regex_title = r"(?P<title>.*?)((" + ")|(".join(self.regex_searches) + "))"
         self.folder = self.path.is_dir()
+        self.needs_subfolder = False
         self.tags = self.get_tags(path)
         self.tags["title"] = self.get_title()
         self.type = self.get_type()
@@ -146,7 +147,7 @@ class FileSorter:
         self.movies_path = self.directory.joinpath("Movies")
 
         if self.path in {self.shows_path, self.movies_path}:
-            raise FileExistsError(f"Renamer cannot be run on special directory {self.path.name}")
+            raise FileExistsError(f"Hardlinker cannot be run on special directory {self.path.name}")
 
         self.create_folder(self.shows_path)
         self.create_folder(self.movies_path)
@@ -163,23 +164,26 @@ class FileSorter:
         except FileExistsError:
             pass
 
-    def move_to_folder(self, source, destination_folder):
-        if not self.dry_run:
-            self.create_folder(destination_folder)
-            source.rename(destination_folder.joinpath(source.name))
-        print(f"Moved {source.name} to {destination_folder.resolve()}")
-
-    def merge_folders(self, source, destination):
-        if source != destination:
-            for f in source.iterdir():
-                if not destination.exists() or f.is_file():
-                    self.move_to_folder(f, destination)
-                else:
-                    self.merge_folders(f, destination.joinpath(f.name))
+    def hardlink_to_folder(self, source, destination_folder, needs_subfolder = False):
+        if source != destination_folder:
             if not self.dry_run:
-                source.rmdir()
+                if source.is_file():
+                    self.create_folder(destination_folder)
+                    if needs_subfolder:
+                        destination_folder = destination_folder.joinpath(source.stem.replace(" ", "."))
+                        self.create_folder(destination_folder)
+                    destination_path = destination_folder.joinpath(source.name.replace(" ", "."))
+                    destination_path.hardlink_to(source)
+                    print(f"Hardlinked {source.name} to {destination_folder.resolve()}")
+                else:
+                    for f in source.iterdir():
+                        self.hardlink_to_folder(f, destination_folder.joinpath(source.name))
         else:
-            print(f"Cannot merge {source.name} with itself!")
+            print(f"Cannot hardlink {source.name} with itself!")
+
+    def hardlink_in_folder(self, source, destination_folder):
+        for f in source.iterdir():
+            self.hardlink_to_folder(f, destination_folder)
 
     def create_symlink(self, source, destination):
         try:
@@ -199,25 +203,15 @@ class FileSorter:
         print(f"{file_info.path} is of type {file_info.type}")
         self.update_tags(file_info.tags)
 
-        if " " in file_info.path.name:
-            dotted_path = file_info.path.parent.joinpath(file_info.path.name.replace(" ", "."))
-            if not self.dry_run:
-                file_info.path = file_info.path.rename(dotted_path)
-            else:
-                file_info.path = dotted_path
-
-        if not file_info.folder and file_info.type != Type.DEFAULT:
-            folder_path = file_info.path.parent.joinpath(file_info.path.stem)
-            self.move_to_folder(file_info.path, folder_path)
-            file_info.path = folder_path
-            file_info.folder = True
+        if file_info.path.is_file() and file_info.type != Type.DEFAULT:
+            file_info.needs_subfolder = True
 
         if file_info.type == Type.FEATURETTE:
             if self.global_tags.get("season"): #Featurette from show
                 featurette_path = self.shows_path.joinpath(file_info.tags.get("title"))
             else: # Should never be reached
                 featurette_path = self.movies_path.joinpath(file_info.path.name)
-            self.move_to_folder(file_info.path, featurette_path)
+            self.hardlink_to_folder(file_info.path, featurette_path, file_info.needs_subfolder)
 
         elif file_info.type == Type.SHOW or file_info.type == Type.SHOW_SEASON:
             for subfolder in file_info.path.glob("*"):
@@ -227,13 +221,13 @@ class FileSorter:
             folder_path = self.shows_path.joinpath(
                 self.global_tags.get("title"),
                 f"season-{self.global_tags.get('season'):02}")
-            self.move_to_folder(file_info.path, folder_path)
+            self.hardlink_to_folder(file_info.path, folder_path, file_info.needs_subfolder)
 
         elif file_info.type == Type.MINI_SERIES:
-            self.merge_folders(file_info.path, self.shows_path.joinpath(file_info.tags.get("title")))
+            self.hardlink_in_folder(file_info.path, self.shows_path.joinpath(file_info.tags.get("title")))
 
         elif file_info.type == Type.MOVIE:
-            self.merge_folders(file_info.path, self.movies_path.joinpath(file_info.path.name))
+            self.hardlink_to_folder(file_info.path, self.movies_path, file_info.needs_subfolder)
 
         if not self.dry_run:
             if file_info.path.suffix == ".txt":
