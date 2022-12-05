@@ -1,5 +1,6 @@
 import re
 import argparse
+import logging
 from pathlib import Path
 
 
@@ -137,11 +138,12 @@ class FileSorter:
     def __init__(self, path, dry_run=False):
         self.dry_run = dry_run
         self.path = Path(path)
+        self.directory = self.path.parent
+        logging.basicConfig(filename=self.directory.joinpath("jellyfin_sorter.log"), level=logging.INFO)
         if not self.path.exists():
-            raise FileNotFoundError(f"{self.path} was not found")
+            raise FileNotFoundError(error)
         if not self.path.is_absolute():
             raise FileNotFoundError("Provided path must be absolute")
-        self.directory = self.path.parent
 
         self.shows_path = self.directory.joinpath("Shows")
         self.movies_path = self.directory.joinpath("Movies")
@@ -160,7 +162,7 @@ class FileSorter:
         try:
             if not self.dry_run:
                 folder_path.mkdir(parents=True, exist_ok=False)
-            print(f"Created {folder_path}")
+            logging.debug(f"Created {folder_path}")
         except FileExistsError:
             pass
 
@@ -173,13 +175,16 @@ class FileSorter:
                         destination_folder = destination_folder.joinpath(source.stem.replace(" ", "."))
                         self.create_folder(destination_folder)
                     destination_path = destination_folder.joinpath(source.name.replace(" ", "."))
-                    destination_path.hardlink_to(source)
-                    print(f"Hardlinked {source.name} to {destination_folder.resolve()}")
+                    try:
+                        destination_path.hardlink_to(source)
+                        logging.info(f"Hardlinked {source.name} to {destination_folder.resolve()}")
+                    except FileExistsError as error:
+                        logging.error(error)
                 else:
                     for f in source.iterdir():
                         self.hardlink_to_folder(f, destination_folder.joinpath(source.name))
         else:
-            print(f"Cannot hardlink {source.name} with itself!")
+            logging.error(f"Cannot hardlink {source.name} with itself!")
 
     def hardlink_in_folder(self, source, destination_folder):
         for f in source.iterdir():
@@ -189,9 +194,9 @@ class FileSorter:
         try:
             if not self.dry_run:
                 source.symlink_to(destination, target_is_directory=True)
-            print(f"Created symlink {source.name} -> {destination.name}")
-        except FileExistsError:
-            print(f"Couldn't create symlink {source.name} -> {destination.name}")
+            logging.info(f"Created symlink {source.name} -> {destination.name}")
+        except FileExistsError as error:
+            logging.error(error)
 
     def update_tags(self, tags):
         for key, value in tags.items():
@@ -200,7 +205,7 @@ class FileSorter:
 
     def build_tree(self, path):
         file_info = FileInfo(path)
-        print(f"{file_info.path} is of type {file_info.type}")
+        logging.info(f"{file_info.path} is of type {file_info.type}")
         self.update_tags(file_info.tags)
 
         if file_info.path.is_file() and file_info.type != Type.DEFAULT:
@@ -237,5 +242,8 @@ if __name__ == '__main__':
     required.add_argument('-d', '--dryrun', help='target directory', required=False)
     args = parser.parse_args()
 
-    fs = FileSorter(args.path, args.dryrun)
+    try:
+        fs = FileSorter(args.path, args.dryrun)
+    except (FileExistsError, FileNotFoundError) as error:
+        logging.error(error)
     fs.sort_file()
