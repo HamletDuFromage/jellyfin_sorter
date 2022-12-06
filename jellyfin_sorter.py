@@ -12,8 +12,7 @@ class Type:
     SHOW_SEASON = 4
     SHOW_EPISODE = 5
     SUBTITLE = 6
-    MINI_SERIES = 7
-    FEATURETTE = 8
+    FEATURETTE = 7
 
 
 class FileInfo:
@@ -23,8 +22,8 @@ class FileInfo:
 
         self.regex_searches = set()
         self.regex_searches.add(r"(?i:s)(?i:eason.?)?(?P<season>\d{1,})")
-        self.regex_searches.add(r"(?i:e)(?i:pisode.?)?(?P<episode>\d{2,})")
-        self.regex_searches.add(r"(?:(?i:part.?)|((?i:e)(?i:pisode.?)?))(?P<part>\d{1,})")
+        #self.regex_searches.add(r"(?i:e)(?i:pisode.?)?(?P<episode>\d{2,})")
+        self.regex_searches.add(r"(?:(?i:part.?)|((?i:e)(?i:pisode.?)?))(?P<episode>\d{2,})")
         self.regex_searches.add(r"(?P<resolution>\d{3,4})p")
         self.regex_searches.add(r"(?:\.|\()(?P<year>\d{4})(?:\.|\))")
         self.regex_searches.add(r"\[(?P<tracker>\D+)\](\.\w+)?$")
@@ -57,6 +56,7 @@ class FileInfo:
         return tags
 
     def is_tv_episode(self) -> bool:
+        res = False
         if self.folder:
             episodes = set()
             for p in self.path.glob("*"):
@@ -66,10 +66,14 @@ class FileInfo:
                         episodes.add(int(episode))
             if len(episodes) == 1:
                 self.tags["episode"] = episodes.pop()
-                return True
-            return False
-        else:
-            return bool(self.tags.get("episode"))
+                res = True
+        res = res or self.tags.get("episode")
+        if res:
+            if not self.tags.get("season"):
+                self.tags["season"] = 1
+        return res
+
+
 
     def is_tv_season(self) -> bool:
         seasons = set()
@@ -125,8 +129,6 @@ class FileInfo:
             return Type.SHOW_SEASON
         if self.is_tv_show():
             return Type.SHOW
-        if self.is_mini_series():
-            return Type.MINI_SERIES
         if self.is_movie():
             return Type.MOVIE
         if self.path.suffix == ".srt":
@@ -177,7 +179,7 @@ class FileSorter:
                     destination_path = destination_folder.joinpath(source.name.replace(" ", "."))
                     try:
                         destination_path.hardlink_to(source)
-                        logging.info(f"Hardlinked {source.name} to {destination_folder.resolve()}")
+                        logging.info(f"Hardlinked {source.name} to {destination_path.resolve()}")
                     except FileExistsError as error:
                         logging.error(error)
                 else:
@@ -205,7 +207,7 @@ class FileSorter:
 
     def build_tree(self, path):
         file_info = FileInfo(path)
-        logging.info(f"{file_info.path} is of type {file_info.type}")
+        logging.debug(f"{file_info.path} is of type {file_info.type}")
         self.update_tags(file_info.tags)
 
         if file_info.path.is_file() and file_info.type != Type.DEFAULT:
@@ -227,9 +229,6 @@ class FileSorter:
                 self.global_tags.get("title"),
                 f"season-{self.global_tags.get('season'):02}")
             self.hardlink_to_folder(file_info.path, folder_path, file_info.needs_subfolder)
-
-        elif file_info.type == Type.MINI_SERIES:
-            self.hardlink_in_folder(file_info.path, self.shows_path.joinpath(file_info.tags.get("title")))
 
         elif file_info.type == Type.MOVIE:
             self.hardlink_to_folder(file_info.path, self.movies_path, file_info.needs_subfolder)
