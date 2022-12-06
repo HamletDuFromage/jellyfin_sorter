@@ -13,27 +13,37 @@ class Type:
     SHOW_EPISODE = 5
     SUBTITLE = 6
     FEATURETTE = 7
+    MUSIC_ALBUM = 8
+    MUSIC_SONG = 9
 
 
 class FileInfo:
     def __init__(self, path):
         self.path = path
-        VIDEO_EXTENSIONS = {r"mkv", r"mp4", r"avi", r"m4v"}
+        self.VIDEO_EXTENSIONS = {r"mkv", r"mp4", r"avi", r"m4v"}
+        self.MUSIC_EXTENSIONS = {r"flac", r"mp3", r"opus", r"wav", r"ogg"}
 
         self.regex_searches = set()
         self.regex_searches.add(r"(?i:s)(?i:eason.?)?(?P<season>\d{1,})")
-        #self.regex_searches.add(r"(?i:e)(?i:pisode.?)?(?P<episode>\d{2,})")
+        # self.regex_searches.add(r"(?i:e)(?i:pisode.?)?(?P<episode>\d{2,})")
         self.regex_searches.add(r"(?:(?i:part.?)|((?i:e)(?i:pisode.?)?))(?P<episode>\d{2,})")
         self.regex_searches.add(r"(?P<resolution>\d{3,4})p")
         self.regex_searches.add(r"(?:\.|\()(?P<year>\d{4})(?:\.|\))")
         self.regex_searches.add(r"\[(?P<tracker>\D+)\](\.\w+)?$")
-        self.regex_searches.add(fr"\.(?P<extension>(?i:{'|'.join(VIDEO_EXTENSIONS)})$)")
+        self.regex_searches.add(
+            fr"\.(?P<extension>(?i:{'|'.join(self.VIDEO_EXTENSIONS.union(self.MUSIC_EXTENSIONS))})$)")
         self.regex_title = r"(?P<title>.*?)((" + ")|(".join(self.regex_searches) + "))"
         self.folder = self.path.is_dir()
         self.needs_subfolder = False
         self.tags = self.get_tags(path)
         self.tags["title"] = self.get_title()
         self.type = self.get_type()
+
+    def file_children(self, path):
+        if path.is_dir():
+            return set(path.glob("*"))
+        else:
+            return {path}
 
     def get_title(self):
         title_search_result = re.search(self.regex_title, self.path.name)
@@ -55,70 +65,77 @@ class FileInfo:
                 tags[int_tag] = int(tags.get(int_tag))
         return tags
 
+    def get_episodes(self, path) -> set:
+        episodes = set()
+        for p in self.file_children(path):
+            if p.is_file():
+                episode = self.get_tags(p).get("episode")
+                if episode:
+                    episodes.add(episode)
+        return episodes
+
     def is_tv_episode(self) -> bool:
-        res = False
-        if self.folder:
-            episodes = set()
-            for p in self.path.glob("*"):
-                if p.is_file():
-                    episode = self.get_tags(p).get("episode")
-                    if episode:
-                        episodes.add(int(episode))
-            if len(episodes) == 1:
-                self.tags["episode"] = episodes.pop()
-                res = True
-        res = res or self.tags.get("episode")
-        if res:
+        episodes = self.get_episodes(self.path)
+        if len(episodes) == 1:
+            self.tags["episode"] = episodes.pop()
             if not self.tags.get("season"):
                 self.tags["season"] = 1
-        return res
-
-
-
-    def is_tv_season(self) -> bool:
-        seasons = set()
-        for p in self.path.rglob("*"):
-            season = self.get_tags(p).get("season")
-            if season:
-                seasons.add(int(season))
-        if len(seasons) == 1:
-            self.tags["season"] = seasons.pop()
             return True
         return False
 
-    def is_tv_show(self) -> bool:
+    def get_seasons(self, path) -> set:
         seasons = set()
-        for p in self.path.rglob("*"):
+        for p in self.file_children(path):
             season = self.get_tags(p).get("season")
             if season:
-                seasons.add(int(season))
-        return len(seasons) > 1
+                seasons.add(season)
+        return seasons
+
+    def is_tv_season(self) -> bool:
+        if self.folder:
+            seasons = self.get_seasons(self.path)
+            episodes = self.get_episodes(self.path)
+            if len(seasons) == 1:
+                self.tags["season"] = seasons.pop()
+                return True
+            elif len(seasons) == 0 and len(episodes) > 1:
+                self.tags["season"] = 1
+                return True
+        return False
+
+    def is_tv_show(self) -> bool:
+        return len(self.get_seasons(self.path)) > 1
 
     def is_featurette(self) -> bool:
-        featurette_dirnames = {
-            r"Behind The Scenes", r"Deleted Scenes", r"Featurettes", r"Interviews", r"Scenes", r"Shorts", r"Trailers", r"Other"
-        }
+        featurette_dirnames = {r"Behind The Scenes", r"Deleted Scenes",
+                               r"Featurettes", r"Interviews", r"Scenes", r"Shorts", r"Trailers", r"Other"}
         featurette_pattern = "|".join(featurette_dirnames)
         return self.path.is_dir() and re.search(featurette_pattern, self.path.name, re.IGNORECASE)
-
-    def is_mini_series(self) -> bool:
-        parts = set()
-        for p in self.path.glob("*"):
-            if p.is_dir() and re.search(r"episodes", p.name, re.IGNORECASE):
-                return True
-            part = self.get_tags(p).get("part")
-            if part:
-                parts.add(int(part))
-        return len(parts) > 1
 
     def is_movie(self) -> bool:
         return self.is_video()
 
     def is_video(self) -> bool:
-        for p in self.path.rglob("*"):
-            if self.get_tags(p).get("extension"):
+        for p in self.file_children(self.path):
+            if self.get_tags(p).get("extension") in self.VIDEO_EXTENSIONS:
                 return True
-        return bool(self.get_tags(self.path).get("extension"))
+        return False
+
+    def get_songs_count(self, path) -> int:
+        songs = 0
+        if self.path.is_dir():
+            for p in path.glob("*"):
+                if self.get_tags(p).get("extension") in self.MUSIC_EXTENSIONS:
+                    songs += 1
+        elif self.get_tags(path).get("extension") in self.MUSIC_EXTENSIONS:
+            songs += 1
+        return songs
+
+    def is_album(self) -> bool:
+        return self.get_songs_count(self.path) > 1
+
+    def is_song(self) -> bool:
+        return self.get_songs_count(self.path) == 1
 
     def get_type(self):
         if self.is_featurette():
@@ -133,6 +150,10 @@ class FileInfo:
             return Type.MOVIE
         if self.path.suffix == ".srt":
             return Type.SUBTITLE
+        if self.is_album():
+            return Type.MUSIC_ALBUM
+        if self.is_song():
+            return Type.MUSIC_SONG
         return Type.DEFAULT
 
 
@@ -141,7 +162,10 @@ class FileSorter:
         self.dry_run = dry_run
         self.path = Path(path)
         self.directory = self.path.parent
-        logging.basicConfig(filename=self.directory.joinpath("jellyfin_sorter.log"), level=logging.INFO)
+        logging.basicConfig(handlers=[logging.StreamHandler(),
+                                      logging.FileHandler(self.directory.joinpath("jellyfin_sorter.log"))],
+                            level=logging.INFO)
+
         if not self.path.exists():
             raise FileNotFoundError(error)
         if not self.path.is_absolute():
@@ -149,12 +173,14 @@ class FileSorter:
 
         self.shows_path = self.directory.joinpath("Shows")
         self.movies_path = self.directory.joinpath("Movies")
+        self.music_path = self.directory.joinpath("Music")
+        media_paths = {self.shows_path, self.movies_path, self.music_path}
 
-        if self.path in {self.shows_path, self.movies_path}:
+        if self.path in media_paths:
             raise FileExistsError(f"Hardlinker cannot be run on special directory {self.path.name}")
 
-        self.create_folder(self.shows_path)
-        self.create_folder(self.movies_path)
+        for media_path in media_paths:
+            self.create_folder(media_path)
         self.global_tags = {}
 
     def sort_file(self):
@@ -168,7 +194,7 @@ class FileSorter:
         except FileExistsError:
             pass
 
-    def hardlink_to_folder(self, source, destination_folder, needs_subfolder = False):
+    def hardlink_to_folder(self, source, destination_folder, needs_subfolder=False):
         if source != destination_folder:
             if not self.dry_run:
                 if source.is_file():
@@ -214,9 +240,9 @@ class FileSorter:
             file_info.needs_subfolder = True
 
         if file_info.type == Type.FEATURETTE:
-            if self.global_tags.get("season"): #Featurette from show
+            if self.global_tags.get("season"):  # Featurette from show
                 featurette_path = self.shows_path.joinpath(file_info.tags.get("title"))
-            else: # Should never be reached
+            else:  # Should never be reached
                 featurette_path = self.movies_path.joinpath(file_info.path.name)
             self.hardlink_to_folder(file_info.path, featurette_path, file_info.needs_subfolder)
 
@@ -232,6 +258,9 @@ class FileSorter:
 
         elif file_info.type == Type.MOVIE:
             self.hardlink_to_folder(file_info.path, self.movies_path, file_info.needs_subfolder)
+
+        elif file_info.type in {Type.MUSIC_ALBUM, Type.MUSIC_SONG}:
+            self.hardlink_to_folder(file_info.path, self.music_path, file_info.needs_subfolder)
 
 
 if __name__ == '__main__':
