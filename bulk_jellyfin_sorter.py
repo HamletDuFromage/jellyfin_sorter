@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from bulk_jellyfin_sorter import FileSorter
 from pathlib import Path
 import argparse
