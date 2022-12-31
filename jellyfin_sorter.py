@@ -169,7 +169,7 @@ class FileSorter:
                             level=logging.INFO)
 
         if not self.path.exists():
-            raise FileNotFoundError(error)
+            raise FileNotFoundError()
         if not self.path.is_absolute():
             raise FileNotFoundError("Provided path must be absolute")
 
