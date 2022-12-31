@@ -163,7 +163,7 @@ class FileSorter:
     def __init__(self, path, library_path = None, dry_run=False):
         self.dry_run = dry_run
         self.path = Path(path)
-        self.directory = Path(library_path) if library_path else self.path.parent
+        self.directory = Path(library_path) if library_path != None else self.path.parent
         logging.basicConfig(handlers=[logging.StreamHandler(),
                                       logging.FileHandler(self.directory.joinpath("jellyfin_sorter.log"))],
                             level=logging.INFO)
