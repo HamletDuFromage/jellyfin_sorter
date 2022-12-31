@@ -163,7 +163,7 @@ class FileSorter:
     def __init__(self, path, library_path = None, dry_run=False):
         self.dry_run = dry_run
         self.path = Path(path)
-        self.directory = Path(library_path) if library_path != None else self.path.parent
+        self.directory = Path(library_path) if library_path else self.path.parent
         logging.basicConfig(handlers=[logging.StreamHandler(),
                                       logging.FileHandler(self.directory.joinpath("jellyfin_sorter.log"))],
                             level=logging.INFO)
@@ -270,11 +270,11 @@ if __name__ == '__main__':
     required = parser.add_argument_group('Required arguments')
     required.add_argument('-p', '--path', help='target file/directory', required=True)
     required.add_argument('-l', '--library', help='library path', required=False, default=None)
-    required.add_argument('-d', '--dryrun', help='target directory', required=False, default=True)
+    required.add_argument('-d', '--dryrun', help='target directory', required=False, default=False)
     args = parser.parse_args()
 
     try:
-        fs = FileSorter(args.path, args.dryrun)
+        fs = FileSorter(args.path, args.library, args.dryrun)
     except (FileExistsError, FileNotFoundError) as error:
         logging.error(error)
     fs.sort_file()
