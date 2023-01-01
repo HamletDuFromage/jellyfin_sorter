@@ -47,6 +47,12 @@ class FileInfo:
         else:
             return {path}
 
+    def file_children_recursive(self, path):
+        if path.is_dir():
+            return set(path.rglob("*"))
+        else:
+            return {path}
+
     def get_title(self):
         title_search_result = re.search(self.regex_title, self.path.name)
         if title_search_result:
@@ -125,12 +131,9 @@ class FileInfo:
 
     def get_songs_count(self, path) -> int:
         songs = 0
-        if self.path.is_dir():
-            for p in path.glob("*"):
-                if self.get_tags(p).get("extension") in self.MUSIC_EXTENSIONS:
-                    songs += 1
-        elif self.get_tags(path).get("extension") in self.MUSIC_EXTENSIONS:
-            songs += 1
+        for p in self.file_children_recursive(self.path):
+            if self.get_tags(p).get("extension") in self.MUSIC_EXTENSIONS:
+                songs += 1
         return songs
 
     def is_album(self) -> bool:
@@ -235,7 +238,7 @@ class FileSorter:
 
     def build_tree(self, path):
         file_info = FileInfo(path)
-        logging.debug(f"{file_info.path} is of type {file_info.type}")
+        logging.info(f"{file_info.path} is of type {file_info.type}")
         self.update_tags(file_info.tags)
 
         if file_info.path.is_file() and file_info.type != Type.DEFAULT:
